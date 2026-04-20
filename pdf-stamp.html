@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PDF批量盖章工具 · 在线版</title>
+    <!-- PDF 处理库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #007AFF 0%, #0056b3 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 32px; margin-bottom: 10px; }
+        .header p { font-size: 16px; opacity: 0.9; }
+        .content { display: flex; flex-wrap: wrap; }
+        .left-panel {
+            flex: 1;
+            min-width: 300px;
+            padding: 30px;
+            border-right: 1px solid #eee;
+        }
+        .right-panel {
+            flex: 1;
+            min-width: 400px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        .section { margin-bottom: 30px; }
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007AFF;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 5px;
+        }
+        .btn:hover { background: #0056b3; transform: translateY(-2px); }
+        .btn-success { background: #52c234; }
+        .btn-success:hover { background: #3d8b2e; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .file-list {
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        .file-item {
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .preview-container {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            border: 2px dashed #ccc;
+            border-radius: 12px;
+            background: white;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        #pdf-preview { width: 100%; height: 100%; }
+        #watermark-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        #watermark-image {
+            position: absolute;
+            cursor: move;
+            pointer-events: auto;
+            max-width: 150px;
+            max-height: 150px;
+            transform-origin: center center;
+        }
+        .control-group { margin-bottom: 20px; }
+        .control-label {
+            display: block;
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .control-slider { width: 100%; }
+        .control-value {
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .progress-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007AFF, #52c234);
+            width: 0%;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .result-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #d4edda;
+            border-radius: 12px;
+            display: none;
+        }
+        .result-section h3 { color: #155724; margin-bottom: 10px; }
+        .download-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #52c234;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .watermark-preview {
+            margin-top: 10px;
+            max-width: 100px;
+            max-height: 100px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            display: none;
+        }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📑 PDF批量盖章工具</h1>
+        <p>纯网页版，无需安装，拖拽定位，支持旋转</p>
+    </div>
+    
+    <div class="content">
+        <div class="left-panel">
+            <div class="section">
+                <div class="section-title">📂 选择PDF文件</div>
+                <input type="file" id="pdf-input" accept=".pdf" multiple>
+                <button class="btn" onclick="document.getElementById('pdf-input').click()">选择PDF文件（可多选）</button>
+                <div class="file-list" id="pdf-list"></div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">🖼️ 选择水印图片</div>
+                <input type="file" id="watermark-input" accept="image/*">
+                <button class="btn" onclick="document.getElementById('watermark-input').click()">选择水印图片</button>
+                <img id="watermark-preview" class="watermark-preview">
+            </div>
+            
+            <div class="section">
+                <div class="section-title">⚙️ 水印设置</div>
+                
+                <div class="control-group">
+                    <label class="control-label">
+                        透明度: <span id="opacity-value" class="control-value">0.3</span>
+                    </label>
+                    <input type="range" id="opacity-slider" class="control-slider" min="0.1" max="1" step="0.1" value="0.3">
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">
+                        大小: <span id="size-value" class="control-value">100</span>px
+                    </label>
+                    <input type="range" id="size-slider" class="control-slider" min="30" max="300" step="10" value="100">
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label">
+                        旋转角度: <span id="rotation-value" class="control-value">0°</span>
+                    </label>
+                    <input type="range" id="rotation-slider" class="control-slider" min="0" max="360" step="1" value="0">
+                </div>
+            </div>
+            
+            <div class="section">
+                <button class="btn btn-success" id="start-btn" onclick="startStamping()" disabled>🚀 开始批量盖章</button>
+            </div>
+            
+            <div class="progress-section" id="progress-section">
+                <div class="section-title">⏳ 处理进度</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill">0%</div>
+                </div>
+            </div>
+            
+            <div class="result-section" id="result-section">
+                <h3>✅ 处理完成！</h3>
+                <p id="result-text"></p>
+                <div id="download-buttons"></div>
+            </div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="section">
+                <div class="section-title">👁️ 预览（拖动水印调整位置）</div>
+                <div class="preview-container">
+                    <canvas id="pdf-preview"></canvas>
+                    <div id="watermark-overlay">
+                        <img id="watermark-image" draggable="false">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        "use strict";
+
+        // PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        // DOM elements
+        const pdfInput = document.getElementById('pdf-input');
+        const watermarkInput = document.getElementById('watermark-input');
+        const pdfListDiv = document.getElementById('pdf-list');
+        const canvas = document.getElementById('pdf-preview');
+        const watermarkImg = document.getElementById('watermark-image');
+        const watermarkPreview = document.getElementById('watermark-preview');
+        const opacitySlider = document.getElementById('opacity-slider');
+        const opacitySpan = document.getElementById('opacity-value');
+        const sizeSlider = document.getElementById('size-slider');
+        const sizeSpan = document.getElementById('size-value');
+        const rotationSlider = document.getElementById('rotation-slider');
+        const rotationSpan = document.getElementById('rotation-value');
+        const startBtn = document.getElementById('start-btn');
+        const progressSection = document.getElementById('progress-section');
+        const progressFill = document.getElementById('progress-fill');
+        const resultSection = document.getElementById('result-section');
+        const resultText = document.getElementById('result-text');
+        const downloadButtonsDiv = document.getElementById('download-buttons');
+
+        // State
+        let selectedFiles = [];
+        let watermarkImageObj = null;      // HTMLImageElement
+        let watermarkDataUrl = null;
+        let currentPdfDoc = null;
+        let canvasWidth = 0, canvasHeight = 0;
+        
+        let watermarkX = 300;
+        let watermarkY = 400;
+        let watermarkOpacity = 0.3;
+        let watermarkSize = 100;
+        let watermarkRotation = 0;          // degrees
+        
+        let isDragging = false;
+
+        // ----- Helper: update PDF list -----
+        function updatePdfList() {
+            if (selectedFiles.length === 0) {
+                pdfListDiv.innerHTML = '<div style="color:#94a3b8; text-align:center; padding:8px;">暂无文件</div>';
+                return;
+            }
+            let html = '';
+            selectedFiles.forEach((f, i) => {
+                html += `<div class="file-item">${i+1}. ${f.name}</div>`;
+            });
+            pdfListDiv.innerHTML = html;
+        }
+
+        // ----- Render first PDF to canvas -----
+        async function renderFirstPdf(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            currentPdfDoc = pdf;
+            const page = await pdf.getPage(1);
+            const scale = 0.8;
+            const viewport = page.getViewport({ scale });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            canvasWidth = viewport.width;
+            canvasHeight = viewport.height;
+            
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+        }
+
+        // ----- Update watermark style (position, size, opacity, rotation) -----
+        function updateWatermarkStyle() {
+            if (!watermarkDataUrl) return;
+            watermarkImg.style.left = (watermarkX - watermarkSize/2) + 'px';
+            watermarkImg.style.top = (watermarkY - watermarkSize/2) + 'px';
+            watermarkImg.style.width = watermarkSize + 'px';
+            watermarkImg.style.height = 'auto';
+            watermarkImg.style.opacity = watermarkOpacity;
+            watermarkImg.style.transform = `rotate(${watermarkRotation}deg)`;
+        }
+
+        // ----- Enable/disable start button -----
+        function checkReady() {
+            startBtn.disabled = !(selectedFiles.length > 0 && watermarkDataUrl);
+        }
+
+        // ----- Load watermark image -----
+        function loadWatermark(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                watermarkDataUrl = e.target.result;
+                watermarkPreview.src = watermarkDataUrl;
+                watermarkPreview.style.display = 'block';
+                
+                const img = new Image();
+                img.onload = () => {
+                    watermarkImageObj = img;
+                    watermarkImg.src = watermarkDataUrl;
+                    updateWatermarkStyle();
+                    checkReady();
+                };
+                img.src = watermarkDataUrl;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // ----- Rotate image using canvas (for PDF embedding) -----
+        function getRotatedWatermarkDataURL() {
+            return new Promise((resolve) => {
+                if (!watermarkImageObj) return resolve(null);
+                const img = watermarkImageObj;
+                const angleDeg = watermarkRotation;
+                
+                // 如果没有旋转，直接返回原图DataURL（但确保是PNG）
+                if (angleDeg === 0) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL('image/png'));
+                    return;
+                }
+                
+                // 计算旋转后所需画布大小
+                const rad = angleDeg * Math.PI / 180;
+                const sin = Math.abs(Math.sin(rad));
+                const cos = Math.abs(Math.cos(rad));
+                const newWidth = Math.ceil(img.width * cos + img.height * sin);
+                const newHeight = Math.ceil(img.width * sin + img.height * cos);
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = newWidth;
+                canvas.height = newHeight;
+                const ctx = canvas.getContext('2d');
+                
+                // 平移、旋转、绘制
+                ctx.translate(newWidth/2, newHeight/2);
+                ctx.rotate(rad);
+                ctx.drawImage(img, -img.width/2, -img.height/2);
+                
+                resolve(canvas.toDataURL('image/png'));
+            });
+        }
+
+        // ----- Process single PDF (stamping) -----
+        async function processPdf(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+            const pages = pdfDoc.getPages();
+            
+            // 获取旋转后的水印图片 DataURL
+            const rotatedStampUrl = await getRotatedWatermarkDataURL();
+            const stampBytes = await fetch(rotatedStampUrl).then(r => r.arrayBuffer());
+            const stampEmbed = await pdfDoc.embedPng(stampBytes);
+            
+            // 获取旋转后图片的尺寸 (用于计算绘制位置)
+            const img = new Image();
+            await new Promise((resolve) => {
+                img.onload = resolve;
+                img.src = rotatedStampUrl;
+            });
+            const rotatedWidth = img.width;
+            const rotatedHeight = img.height;
+            
+            pages.forEach(page => {
+                const { width: pdfWidth, height: pdfHeight } = page.getSize();
+                
+                // 预览画布到PDF的缩放比例
+                const scaleX = pdfWidth / canvasWidth;
+                const scaleY = pdfHeight / canvasHeight;
+                
+                // 水印中心点在PDF中的坐标 (预览时中心点为 watermarkX, watermarkY)
+                const centerX = watermarkX * scaleX;
+                const centerY = pdfHeight - watermarkY * scaleY;  // PDF Y轴向上
+                
+                // 水印在PDF中的尺寸：根据预览时的watermarkSize按比例缩放
+                // 预览时水印宽度为 watermarkSize，高度按比例。旋转后尺寸变了，但我们要保持旋转后的图像完整绘制
+                // 我们希望旋转后图像的外接矩形大小与预览时视觉一致。
+                // 简便方法：预览时我们使用CSS旋转，视觉大小约等于 watermarkSize * 原始宽高比。
+                // 这里直接根据旋转后图像的实际像素尺寸映射到PDF单位。
+                // 水印在预览时的视觉宽度是 watermarkSize，对应实际图像宽度 watermarkImageObj.width。
+                // 旋转后宽度变为 rotatedWidth，所以PDF中宽度应为 watermarkSize * scaleX * (rotatedWidth / watermarkImageObj.width)
+                const baseScale = watermarkSize / watermarkImageObj.width;
+                const pdfStampWidth = rotatedWidth * baseScale * scaleX;
+                const pdfStampHeight = rotatedHeight * baseScale * scaleY;
+                
+                // 绘制位置：左上角坐标 (中心点减去半宽/半高)
+                const leftX = centerX - pdfStampWidth / 2;
+                const bottomY = centerY - pdfStampHeight / 2;
+                
+                page.drawImage(stampEmbed, {
+                    x: leftX,
+                    y: bottomY,
+                    width: pdfStampWidth,
+                    height: pdfStampHeight,
+                    opacity: watermarkOpacity
+                });
+            });
+            
+            const pdfBytes = await pdfDoc.save();
+            return URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+        }
+
+        // ----- Start batch stamping -----
+        window.startStamping = async function() {
+            if (selectedFiles.length === 0 || !watermarkDataUrl) return;
+            
+            startBtn.disabled = true;
+            progressSection.style.display = 'block';
+            resultSection.style.display = 'none';
+            downloadButtonsDiv.innerHTML = '';
+            
+            const total = selectedFiles.length;
+            let completed = 0;
+            
+            for (let i = 0; i < total; i++) {
+                const file = selectedFiles[i];
+                try {
+                    const stampedUrl = await processPdf(file);
+                    
+                    const btn = document.createElement('button');
+                    btn.className = 'download-btn';
+                    btn.textContent = `⬇️ 下载 ${file.name.replace('.pdf','')}_已盖章.pdf`;
+                    btn.addEventListener('click', () => {
+                        const a = document.createElement('a');
+                        a.href = stampedUrl;
+                        a.download = file.name.replace('.pdf','') + '_已盖章.pdf';
+                        a.click();
+                    });
+                    downloadButtonsDiv.appendChild(btn);
+                } catch (err) {
+                    console.error('处理失败:', file.name, err);
+                    // 可添加错误提示，但继续处理其他文件
+                }
+                completed++;
+                const percent = Math.round((completed / total) * 100);
+                progressFill.style.width = percent + '%';
+                progressFill.textContent = percent + '%';
+                
+                // 让UI有机会更新
+                await new Promise(r => setTimeout(r, 50));
+            }
+            
+            progressSection.style.display = 'none';
+            resultSection.style.display = 'block';
+            resultText.textContent = `成功处理 ${selectedFiles.length} 个文件！`;
+            startBtn.disabled = false;
+        };
+
+        // ----- Event listeners -----
+        pdfInput.addEventListener('change', async (e) => {
+            selectedFiles = Array.from(e.target.files);
+            updatePdfList();
+            if (selectedFiles.length > 0) {
+                await renderFirstPdf(selectedFiles[0]);
+                // 如果有水印，更新其位置到画布内合适位置
+                if (watermarkDataUrl) {
+                    watermarkX = canvasWidth * 0.7;
+                    watermarkY = canvasHeight * 0.7;
+                    updateWatermarkStyle();
+                }
+            }
+            checkReady();
+        });
+
+        watermarkInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) loadWatermark(file);
+        });
+
+        // Dragging
+        watermarkImg.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const container = document.querySelector('.preview-container');
+            const rect = container.getBoundingClientRect();
+            watermarkX = e.clientX - rect.left;
+            watermarkY = e.clientY - rect.top;
+            updateWatermarkStyle();
+        });
+        document.addEventListener('mouseup', () => { isDragging = false; });
+
+        // Sliders
+        opacitySlider.addEventListener('input', (e) => {
+            watermarkOpacity = parseFloat(e.target.value);
+            opacitySpan.textContent = watermarkOpacity.toFixed(1);
+            updateWatermarkStyle();
+        });
+        sizeSlider.addEventListener('input', (e) => {
+            watermarkSize = parseInt(e.target.value);
+            sizeSpan.textContent = watermarkSize;
+            updateWatermarkStyle();
+        });
+        rotationSlider.addEventListener('input', (e) => {
+            watermarkRotation = parseInt(e.target.value);
+            rotationSpan.textContent = watermarkRotation + '°';
+            updateWatermarkStyle();
+        });
+
+        // Initialize
+        watermarkImg.style.cursor = 'grab';
+        watermarkImg.addEventListener('mousedown', () => watermarkImg.style.cursor = 'grabbing');
+        document.addEventListener('mouseup', () => watermarkImg.style.cursor = 'grab');
+    })();
+</script>
+</body>
+</html>
