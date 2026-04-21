@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PDF批量盖章工具 · 精确校准版</title>
+    <title>PDF批量盖章工具 · 方向校准版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <style>
@@ -139,30 +139,26 @@
         let watermarkImage = null;
         let watermarkDataUrl = null;
         
-        // 当前预览的PDF页面尺寸 (像素，基于96DPI)
         let previewPageSize = { width: 0, height: 0 };
-        // 预览页面的PT尺寸 (72DPI)
         let previewPageSizePt = { width: 0, height: 0 };
         
-        // 水印配置 (基于预览像素坐标系，中心点)
         const watermarkConfig = {
-            x: 0, y: 0,       // 中心坐标 (px)
-            size: 100,         // 宽度像素
+            x: 0, y: 0,
+            size: 100,
             opacity: 0.5,
             rotation: 0,
-            ratio: 1.0         // 高/宽
+            ratio: 1.0
         };
 
         let isProcessing = false;
         let objectUrls = [];
 
-        // ---------- 工具：清理Blob URL ----------
+        // ---------- 工具 ----------
         function revokeAllUrls() {
             objectUrls.forEach(url => URL.revokeObjectURL(url));
             objectUrls = [];
         }
 
-        // Base64 -> ArrayBuffer
         function dataURLToArrayBuffer(dataURL) {
             const base64 = dataURL.split(',')[1];
             const binary = atob(base64);
@@ -172,7 +168,7 @@
             return buffer.buffer;
         }
 
-        // ---------- 刷新预览界面 ----------
+        // ---------- 预览刷新 ----------
         function refreshWatermarkPreview() {
             if (!watermarkImage || previewPageSize.width === 0) {
                 elements.watermarkPreview.style.display = 'none';
@@ -184,7 +180,6 @@
             const boxRect = elements.previewBox.getBoundingClientRect();
             const pdfRect = pdfImg.getBoundingClientRect();
             
-            // 显示缩放比例
             const scaleX = pdfRect.width / previewPageSize.width;
             const scaleY = pdfRect.height / previewPageSize.height;
             const scale = Math.min(scaleX, scaleY);
@@ -197,7 +192,6 @@
             elements.watermarkPreview.style.opacity = watermarkConfig.opacity;
             elements.watermarkPreview.style.transform = `rotate(${watermarkConfig.rotation}deg)`;
             
-            // 中心在预览框内的坐标
             const centerX = watermarkConfig.x * scale + (pdfRect.left - boxRect.left);
             const centerY = watermarkConfig.y * scale + (pdfRect.top - boxRect.top);
             
@@ -206,7 +200,6 @@
             elements.watermarkPreview.style.display = 'block';
         }
 
-        // 重置到中心
         function resetWatermarkToCenter() {
             if (previewPageSize.width === 0) return;
             watermarkConfig.x = previewPageSize.width / 2;
@@ -214,7 +207,6 @@
             refreshWatermarkPreview();
         }
 
-        // 快速定位
         function setPositionByType(posType) {
             if (previewPageSize.width === 0 || !watermarkImage) {
                 alert('请先选择PDF和水印图片');
@@ -233,7 +225,7 @@
             refreshWatermarkPreview();
         }
 
-        // ---------- PDF选择与预览 ----------
+        // ---------- PDF预览 ----------
         async function handlePdfSelect(e) {
             pdfFiles = Array.from(e.target.files);
             updatePdfFileList();
@@ -371,7 +363,7 @@
             elements.processBtn.disabled = !(pdfFiles.length > 0 && watermarkImage) || isProcessing;
         }
 
-        // ---------- 核心：单个PDF处理（精确比例映射，支持异形页面）----------
+        // ---------- 核心：单个PDF处理 (方向已校准) ----------
         async function processSinglePdf(file) {
             const pdfBytes = await file.arrayBuffer();
             const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -384,38 +376,34 @@
                 ? await pdfDoc.embedPng(imgBuffer) 
                 : await pdfDoc.embedJpg(imgBuffer);
             
-            // 基准参考：预览时使用的第一页尺寸 (PT)
-            const refWidthPt = previewPageSizePt.width;
-            const refHeightPt = previewPageSizePt.height;
-            
-            // 水印相对于预览页面的比例 (中心点位置比例 + 大小比例)
-            const centerXRatio = watermarkConfig.x / previewPageSize.width;      // 0..1
-            const centerYRatio = watermarkConfig.y / previewPageSize.height;     // 0..1
-            const sizeRatio = watermarkConfig.size / previewPageSize.width;      // 宽度占页面宽比例
-            
-            // 预计算旋转偏移量所需参数（基于参考尺寸的临时值，实际每页会重新计算）
-            const baseWmWidthPt = refWidthPt * sizeRatio;
-            const baseWmHeightPt = baseWmWidthPt * watermarkConfig.ratio;
-            const rad = watermarkConfig.rotation * Math.PI / 180;
+            // 关键校准：预览使用CSS顺时针旋转为正，pdf-lib逆时针为正，因此取负值保持一致
+            const actualRotation = -watermarkConfig.rotation;
+            const rad = actualRotation * Math.PI / 180;
             const cos = Math.cos(rad);
             const sin = Math.sin(rad);
+            
+            // 比例映射（基于预览页面尺寸）
+            const refWidthPt = previewPageSizePt.width;
+            const refHeightPt = previewPageSizePt.height;
+            const centerXRatio = watermarkConfig.x / previewPageSize.width;
+            const centerYRatio = watermarkConfig.y / previewPageSize.height;
+            const sizeRatio = watermarkConfig.size / previewPageSize.width;
             
             for (const page of pages) {
                 const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
                 
-                // 根据比例计算当前页的水印中心点 (PT)
+                // 当前页水印中心点 (PT)
                 const centerXInPt = pageWidthPt * centerXRatio;
-                // Y轴：预览原点在左上，PDF原点在左下，需要翻转比例
-                const centerYInPt = pageHeightPt * (1 - centerYRatio);
+                const centerYInPt = pageHeightPt * (1 - centerYRatio); // Y翻转
                 
-                // 当前页的水印尺寸 (PT)
+                // 当前页水印尺寸 (PT)
                 const wmWidthPt = pageWidthPt * sizeRatio;
                 const wmHeightPt = wmWidthPt * watermarkConfig.ratio;
                 
                 const halfW = wmWidthPt / 2;
                 const halfH = wmHeightPt / 2;
                 
-                // 旋转偏移：从中心到左下角的向量 (未旋转时左下角相对于中心偏移为 -halfW, -halfH)
+                // 计算旋转后的左下角偏移 (使用实际旋转角度)
                 const offsetX = -halfW * cos + halfH * sin;
                 const offsetY = -halfW * sin - halfH * cos;
                 
@@ -428,7 +416,7 @@
                     width: wmWidthPt,
                     height: wmHeightPt,
                     opacity: watermarkConfig.opacity,
-                    rotate: PDFLib.degrees(watermarkConfig.rotation)
+                    rotate: PDFLib.degrees(actualRotation)   // 使用校准后的角度
                 });
             }
             
@@ -485,7 +473,7 @@
             updateProcessButton();
         }
 
-        // ---------- 监听变化 ----------
+        // ---------- 监听 ----------
         function observeChanges() {
             new ResizeObserver(() => refreshWatermarkPreview()).observe(elements.previewBox);
             elements.pdfPreview.addEventListener('load', () => { if (previewPageSize.width) refreshWatermarkPreview(); });
