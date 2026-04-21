@@ -119,13 +119,14 @@
         }
         #pdf-preview {
             max-width: 100%;
-            max-height: 500px;
+            max-height: 90%;
         }
         #watermark-preview {
             position: absolute;
             cursor: move;
             opacity: 0.5;
             transform-origin: center center;
+            pointer-events: auto;
         }
         .progress-bar {
             height: 20px;
@@ -155,6 +156,10 @@
         }
         .hidden {
             display: none;
+        }
+        .pos-btn.active {
+            background: #007bff;
+            color: white;
         }
     </style>
 </head>
@@ -205,7 +210,7 @@
 
             <button class="btn" id="process-btn" disabled>开始批量盖章</button>
 
-            <div class="progress-bar" id="progress-bar">
+            <div class="progress-bar" id="progress-bar" style="display: none;">
                 <div class="progress-fill" id="progress-fill">0%</div>
             </div>
 
@@ -282,7 +287,13 @@
 
             // 快速定位按钮
             document.querySelectorAll('.pos-btn').forEach(btn => {
-                btn.addEventListener('click', () => setWatermarkPosition(btn.dataset.pos));
+                btn.addEventListener('click', () => {
+                    // 移除所有激活状态
+                    document.querySelectorAll('.pos-btn').forEach(b => b.classList.remove('active'));
+                    // 添加当前激活状态
+                    btn.classList.add('active');
+                    setWatermarkPosition(btn.dataset.pos);
+                });
             });
 
             // 水印拖动
@@ -349,6 +360,7 @@
                 // 显示预览
                 pdfPreviewUrl = canvas.toDataURL('image/png');
                 elements.pdfPreview.src = pdfPreviewUrl;
+                elements.pdfPreview.style.display = 'block';
                 
                 // 如果已有水印，更新水印预览位置
                 if (watermarkImage) {
@@ -380,6 +392,7 @@
                     
                     // 更新水印预览
                     elements.watermarkPreview.src = watermarkDataUrl;
+                    elements.watermarkPreview.style.display = 'block';
                     resetWatermarkPosition();
                     
                     updateProcessButtonStatus();
@@ -470,7 +483,7 @@
             
             // 设置水印样式
             elements.watermarkPreview.style.width = (watermarkConfig.size * scale) + 'px';
-            elements.watermarkPreview.style.height = 'auto';
+            elements.watermarkPreview.style.height = (watermarkConfig.size * scale * watermarkConfig.ratio) + 'px';
             elements.watermarkPreview.style.opacity = watermarkConfig.opacity;
             elements.watermarkPreview.style.transform = `rotate(${watermarkConfig.rotation}deg)`;
             
