@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PDF批量盖章工具 · 专业版</title>
+    <title>PDF批量盖章工具 · 稳定版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <style>
@@ -169,6 +169,29 @@
             background: #e2e8f0;
             outline: none;
         }
+        /* 快速位置按钮样式 */
+        .position-btns {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin: 16px 0;
+        }
+        .pos-btn {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 0;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .pos-btn:hover {
+            background: #e2e8f0;
+            border-color: #cbd5e1;
+        }
+        .pos-btn:active {
+            transform: scale(0.96);
+        }
         .progress-area {
             margin: 18px 0;
             display: none;
@@ -229,8 +252,8 @@
 </head>
 <body>
 <div class="app">
-    <h1>📑 PDF批量盖章 · 专业版</h1>
-    <div class="subtitle">预览与PDF输出完全一致 · 全页面统一水印</div>
+    <h1>📑 PDF批量盖章 · 稳定版</h1>
+    <div class="subtitle">预览与PDF输出完全一致 · 快速定位水印位置</div>
 
     <div class="content">
         <div class="left-panel">
@@ -266,6 +289,16 @@
                     <label>🔄 旋转</label>
                     <input type="range" id="rotation-slider" min="0" max="360" step="1" value="0">
                     <span id="rotation-val">0°</span>
+                </div>
+                
+                <!-- 快速位置按钮 -->
+                <div class="section-title" style="margin-top:10px; margin-bottom:8px;">📍 快速位置</div>
+                <div class="position-btns">
+                    <button class="pos-btn" id="pos-tl">左上角</button>
+                    <button class="pos-btn" id="pos-tr">右上角</button>
+                    <button class="pos-btn" id="pos-center">居中</button>
+                    <button class="pos-btn" id="pos-bl">左下角</button>
+                    <button class="pos-btn" id="pos-br">右下角</button>
                 </div>
             </div>
 
@@ -320,7 +353,13 @@
             progressArea: document.getElementById('progress-area'),
             progressFill: document.getElementById('progress-fill'),
             downloadSection: document.getElementById('download-section'),
-            watermarkLayer: document.getElementById('watermark-layer')
+            watermarkLayer: document.getElementById('watermark-layer'),
+            // 快速位置按钮
+            posTl: document.getElementById('pos-tl'),
+            posTr: document.getElementById('pos-tr'),
+            posCenter: document.getElementById('pos-center'),
+            posBl: document.getElementById('pos-bl'),
+            posBr: document.getElementById('pos-br')
         };
 
         // 全局状态
@@ -337,17 +376,19 @@
             dragOffset: { x: 0, y: 0 }
         };
 
-        // 边界限制（水印不超出页面）
+        // 边界限制（水印不超出页面，留10px边距）
         function clampWatermarkPosition() {
             const { width, height } = state.pdfViewport;
             const halfSize = state.watermark.size / 2;
-            state.watermark.x = Math.max(halfSize, Math.min(width - halfSize, state.watermark.x));
-            state.watermark.y = Math.max(halfSize, Math.min(height - halfSize, state.watermark.y));
+            const margin = 10; // 边距
+            
+            state.watermark.x = Math.max(halfSize + margin, Math.min(width - halfSize - margin, state.watermark.x));
+            state.watermark.y = Math.max(halfSize + margin, Math.min(height - halfSize - margin, state.watermark.y));
         }
 
         // 更新水印样式（核心：预览渲染）
         function updateWatermarkPreview() {
-            if (!state.stampDataUrl) return;
+            if (!state.stampDataUrl || !state.pdfViewport.width) return;
             
             clampWatermarkPosition();
             const wm = state.watermark;
@@ -359,6 +400,43 @@
             dom.watermarkImg.style.transform = `rotate(${wm.rotation}deg)`;
             dom.watermarkImg.style.left = `${wm.x - wm.size/2}px`;
             dom.watermarkImg.style.top = `${wm.y - wm.size/2}px`;
+        }
+
+        // 快速定位水印位置
+        function setWatermarkPosition(position) {
+            if (!state.pdfViewport.width || !state.stampDataUrl) {
+                alert('请先上传PDF和水印图片！');
+                return;
+            }
+            
+            const { width, height } = state.pdfViewport;
+            const halfSize = state.watermark.size / 2;
+            const margin = 10; // 边距
+            
+            switch(position) {
+                case 'tl': // 左上角
+                    state.watermark.x = halfSize + margin;
+                    state.watermark.y = halfSize + margin;
+                    break;
+                case 'tr': // 右上角
+                    state.watermark.x = width - halfSize - margin;
+                    state.watermark.y = halfSize + margin;
+                    break;
+                case 'center': // 居中
+                    state.watermark.x = width / 2;
+                    state.watermark.y = height / 2;
+                    break;
+                case 'bl': // 左下角
+                    state.watermark.x = halfSize + margin;
+                    state.watermark.y = height - halfSize - margin;
+                    break;
+                case 'br': // 右下角
+                    state.watermark.x = width - halfSize - margin;
+                    state.watermark.y = height - halfSize - margin;
+                    break;
+            }
+            
+            updateWatermarkPreview();
         }
 
         // 更新PDF文件列表
@@ -394,9 +472,7 @@
 
                 // 默认水印居中
                 if (state.stampDataUrl) {
-                    state.watermark.x = viewport.width / 2;
-                    state.watermark.y = viewport.height / 2;
-                    updateWatermarkPreview();
+                    setWatermarkPosition('center');
                 }
             } catch (err) {
                 alert('PDF预览加载失败：' + err.message);
@@ -439,8 +515,7 @@
                         state.watermark.size = parseInt(dom.sizeSlider.value);
                         
                         if (state.pdfViewport.width) {
-                            state.watermark.x = state.pdfViewport.width / 2;
-                            state.watermark.y = state.pdfViewport.height / 2;
+                            setWatermarkPosition('center');
                         }
                         updateWatermarkPreview();
                         checkProcessReady();
@@ -465,9 +540,15 @@
                 if (!state.isDragging) return;
                 const layerRect = dom.watermarkLayer.getBoundingClientRect();
                 
-                // 精准计算坐标
-                state.watermark.x = e.clientX - layerRect.left - state.dragOffset.x + state.watermark.size/2;
-                state.watermark.y = e.clientY - layerRect.top - state.dragOffset.y + state.watermark.size/2;
+                // 精准计算坐标（修复比例问题）
+                const scaleX = state.pdfViewport.width / layerRect.width;
+                const scaleY = state.pdfViewport.height / layerRect.height;
+                
+                const rawX = (e.clientX - layerRect.left - state.dragOffset.x) * scaleX;
+                const rawY = (e.clientY - layerRect.top - state.dragOffset.y) * scaleY;
+                
+                state.watermark.x = rawX + state.watermark.size/2;
+                state.watermark.y = rawY + state.watermark.size/2;
                 
                 updateWatermarkPreview();
             });
@@ -496,6 +577,13 @@
                 updateWatermarkPreview();
             });
 
+            // 快速位置按钮事件
+            dom.posTl.addEventListener('click', () => setWatermarkPosition('tl'));
+            dom.posTr.addEventListener('click', () => setWatermarkPosition('tr'));
+            dom.posCenter.addEventListener('click', () => setWatermarkPosition('center'));
+            dom.posBl.addEventListener('click', () => setWatermarkPosition('bl'));
+            dom.posBr.addEventListener('click', () => setWatermarkPosition('br'));
+
             // 开始处理
             dom.startBtn.addEventListener('click', startBatchProcess);
         }
@@ -510,20 +598,20 @@
             dom.downloadSection.innerHTML = '';
 
             const total = state.pdfFiles.length;
-            let success = 0;
+            let processed = 0;
 
             for (const file of state.pdfFiles) {
                 try {
                     const downloadUrl = await processSinglePdf(file);
                     createDownloadButton(file.name, downloadUrl);
-                    success++;
                 } catch (err) {
                     console.error('处理失败：', err);
                     alert(`文件 ${file.name} 处理失败：${err.message}`);
                 }
                 
                 // 更新进度
-                const percent = Math.round((++success / total) * 100);
+                processed++;
+                const percent = Math.round((processed / total) * 100);
                 dom.progressFill.style.width = `${percent}%`;
                 dom.progressFill.textContent = `${percent}%`;
             }
@@ -533,17 +621,30 @@
             dom.startBtn.disabled = false;
         }
 
-        // 核心：处理单个PDF（预览与输出100%一致）
+        // 核心：处理单个PDF（修复NaN报错 + 精准坐标）
         async function processSinglePdf(file) {
+            // 参数校验
+            if (!state.stampDataUrl) throw new Error('未上传水印图片');
+            if (!state.pdfViewport.width) throw new Error('PDF预览未加载');
+            
             const arrayBuffer = await file.arrayBuffer();
             const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
             const pages = pdfDoc.getPages();
             
-            // 嵌入水印图片
-            const stampBytes = await fetch(state.stampDataUrl).then(res => res.arrayBuffer());
-            const stampEmbed = state.stampDataUrl.includes('image/png') 
-                ? await pdfDoc.embedPng(stampBytes) 
-                : await pdfDoc.embedJpg(stampBytes);
+            // 嵌入水印图片（修复类型错误）
+            let stampEmbed;
+            try {
+                const stampBytes = await fetch(state.stampDataUrl).then(res => res.arrayBuffer());
+                if (state.stampDataUrl.includes('image/png')) {
+                    stampEmbed = await pdfDoc.embedPng(stampBytes);
+                } else if (state.stampDataUrl.includes('image/jpeg') || state.stampDataUrl.includes('image/jpg')) {
+                    stampEmbed = await pdfDoc.embedJpg(stampBytes);
+                } else {
+                    throw new Error('仅支持PNG/JPG格式水印');
+                }
+            } catch (err) {
+                throw new Error('水印图片嵌入失败：' + err.message);
+            }
 
             // 获取PDF页面真实尺寸
             const pdfPage = pages[0];
@@ -553,23 +654,29 @@
             const scale = pdfWidth / state.pdfViewport.width;
             const wm = state.watermark;
 
-            // 水印真实尺寸（保持宽高比）
-            const stampWidth = wm.size * scale;
-            const stampHeight = stampWidth * state.stampRatio;
+            // 水印真实尺寸（保持宽高比，避免NaN）
+            const stampWidth = Number.isFinite(wm.size) ? wm.size * scale : 100 * scale;
+            const stampHeight = Number.isFinite(state.stampRatio) ? stampWidth * state.stampRatio : stampWidth;
 
-            // 坐标映射（修复Y轴翻转，1:1匹配预览）
-            const pdfX = (wm.x - wm.size/2) * scale;
-            const pdfY = pdfHeight - (wm.y + wm.size/2) * scale;
+            // 坐标映射（修复Y轴翻转 + 避免NaN）
+            const previewX = Number.isFinite(wm.x) ? wm.x : pdfWidth / 2;
+            const previewY = Number.isFinite(wm.y) ? wm.y : pdfHeight / 2;
+            
+            const pdfX = (previewX - wm.size/2) * scale;
+            const pdfY = pdfHeight - (previewY + wm.size/2) * scale;
 
-            // 为所有页面添加水印
+            // 旋转角度校验（避免NaN）
+            const rotation = Number.isFinite(wm.rotation) ? wm.rotation : 0;
+
+            // 为所有页面添加水印（修复operator错误）
             pages.forEach(page => {
                 page.drawImage(stampEmbed, {
                     x: pdfX,
                     y: pdfY,
                     width: stampWidth,
                     height: stampHeight,
-                    opacity: wm.opacity,
-                    rotate: PDFLib.degrees(wm.rotation) // 统一旋转
+                    opacity: Number.isFinite(wm.opacity) ? wm.opacity : 0.5,
+                    rotate: PDFLib.degrees(rotation) // 正确的旋转参数
                 });
             });
 
