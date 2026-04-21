@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PDF批量盖章工具 · 页面旋转适配版</title>
+    <title>PDF批量盖章工具 · 旋转适配版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <style>
-        /* 保持原有样式，省略以节省篇幅，实际使用时请保留完整样式 */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; background: #f0f2f5; }
         .container { max-width: 1300px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; }
@@ -44,7 +43,6 @@
 </head>
 <body>
 <div class="container">
-    <!-- 左侧面板同之前，为节省空间略写，实际完整版本已包含 -->
     <div class="left-panel">
         <div class="section">
             <div class="section-title">📄 1. 选择PDF (支持多选)</div>
@@ -52,12 +50,14 @@
             <button class="btn btn-outline" id="select-pdf-btn">📂 浏览PDF文件</button>
             <div class="file-list" id="pdf-file-list">暂无文件</div>
         </div>
+
         <div class="section">
             <div class="section-title">🖼️ 2. 水印图片 (PNG/JPG)</div>
             <input type="file" id="watermark-file-input" accept="image/png,image/jpeg,image/jpg" class="hidden">
             <button class="btn btn-outline" id="select-watermark-btn">🌄 选择水印图片</button>
             <img id="watermark-thumb" alt="水印缩略图" style="display: none;">
         </div>
+
         <div class="section">
             <div class="section-title">⚙️ 3. 水印调节</div>
             <div class="slider-group">
@@ -75,6 +75,7 @@
                 <input type="range" id="rotate-slider" min="0" max="360" step="1" value="0">
                 <span id="rotate-value">0°</span>
             </div>
+
             <div class="section-title">📍 快速定位</div>
             <div class="position-buttons">
                 <button class="pos-btn" data-pos="top-left">↖ 左上</button>
@@ -85,12 +86,15 @@
             </div>
             <p class="tip-text">💡 在右侧预览区可直接拖动水印微调</p>
         </div>
+
         <button class="btn" id="process-btn" disabled>✨ 开始批量盖章</button>
+
         <div class="progress-bar" id="progress-bar" style="display: none;">
             <div class="progress-fill" id="progress-fill">0%</div>
         </div>
         <div class="download-area" id="download-area"></div>
     </div>
+
     <div class="right-panel">
         <div class="section-title">🔍 实时预览 (拖动水印调整位置)</div>
         <div class="preview-box" id="preview-box">
@@ -99,9 +103,12 @@
         </div>
     </div>
 </div>
+
 <script>
     (function(){
         "use strict";
+
+        // ---------- 初始化 ----------
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         const $ = id => document.getElementById(id);
@@ -127,12 +134,15 @@
             downloadArea: $('download-area')
         };
 
+        // 状态
         let pdfFiles = [];
         let watermarkImage = null;
         let watermarkDataUrl = null;
         let originalWatermarkDataUrl = null;
-        let previewPageSize = { width: 0, height: 0 };
-        let previewPageSizePt = { width: 0, height: 0 };
+        
+        let previewPageSize = { width: 0, height: 0 };      // 预览用像素尺寸
+        let previewPageSizePt = { width: 0, height: 0 };    // 预览用pt尺寸（未旋转）
+        let previewPageRotation = 0;                         // 预览页面的旋转角度
         
         const watermarkConfig = {
             x: 0, y: 0,
@@ -145,6 +155,7 @@
         let isProcessing = false;
         let objectUrls = [];
 
+        // ---------- 工具 ----------
         function revokeAllUrls() {
             objectUrls.forEach(url => URL.revokeObjectURL(url));
             objectUrls = [];
@@ -159,6 +170,7 @@
             return buffer.buffer;
         }
 
+        // 标准化图片方向
         function normalizeImageOrientation(img, callback) {
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
@@ -168,6 +180,7 @@
             callback(canvas.toDataURL('image/png'));
         }
 
+        // ---------- 预览刷新 ----------
         function refreshWatermarkPreview() {
             if (!watermarkImage || previewPageSize.width === 0) {
                 elements.watermarkPreview.style.display = 'none';
@@ -224,6 +237,7 @@
             refreshWatermarkPreview();
         }
 
+        // ---------- PDF预览（获取旋转信息）----------
         async function handlePdfSelect(e) {
             pdfFiles = Array.from(e.target.files);
             updatePdfFileList();
@@ -253,28 +267,45 @@
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                 const page = await pdf.getPage(1);
                 
-                const viewport = page.getViewport({ scale: 1 });
-                previewPageSize = { width: viewport.width, height: viewport.height };
+                // 获取页面旋转角度 (pdf.js 中 rotation 属性)
+                const rotation = page.rotate || 0;
+                previewPageRotation = rotation;
                 
-                const ptViewport = page.getViewport({ scale: 72 / 96 });
+                // 获取原始视口（未旋转的尺寸）
+                const originalViewport = page.getViewport({ scale: 1 });
+                // 获取考虑旋转后的视口（用于预览显示）
+                const viewport = page.getViewport({ scale: 1, rotation: 0 });
+                
+                // 我们存储未旋转的像素尺寸作为坐标基准（与 pdf-lib 默认坐标系一致）
+                previewPageSize = { width: originalViewport.width, height: originalViewport.height };
+                
+                // PT 尺寸同样取未旋转的
+                const ptViewport = page.getViewport({ scale: 72/96, rotation: 0 });
                 previewPageSizePt = { width: ptViewport.width, height: ptViewport.height };
                 
+                // 渲染预览（显示旋转后的效果，与用户看到的一致）
                 const canvas = document.createElement('canvas');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
+                const renderViewport = page.getViewport({ scale: 1 });
+                canvas.width = renderViewport.width;
+                canvas.height = renderViewport.height;
                 const ctx = canvas.getContext('2d');
-                await page.render({ canvasContext: ctx, viewport }).promise;
+                await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
                 
                 elements.pdfPreview.src = canvas.toDataURL('image/png');
                 elements.pdfPreview.style.display = 'block';
                 
-                if (watermarkImage) resetWatermarkToCenter();
-                else elements.watermarkPreview.style.display = 'none';
+                if (watermarkImage) {
+                    // 水印坐标是基于未旋转坐标系，重置时也要基于未旋转尺寸
+                    watermarkConfig.x = previewPageSize.width / 2;
+                    watermarkConfig.y = previewPageSize.height / 2;
+                }
+                refreshWatermarkPreview();
             } catch (err) {
                 alert('PDF预览失败: ' + err.message);
             }
         }
 
+        // ---------- 水印加载 ----------
         function handleWatermarkSelect(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -292,7 +323,11 @@
                             elements.watermarkThumb.src = normalizedDataUrl;
                             elements.watermarkThumb.style.display = 'block';
                             elements.watermarkPreview.src = normalizedDataUrl;
-                            if (previewPageSize.width > 0) resetWatermarkToCenter();
+                            if (previewPageSize.width > 0) {
+                                watermarkConfig.x = previewPageSize.width / 2;
+                                watermarkConfig.y = previewPageSize.height / 2;
+                            }
+                            refreshWatermarkPreview();
                             updateProcessButton();
                         };
                         normalizedImg.src = normalizedDataUrl;
@@ -303,6 +338,7 @@
             reader.readAsDataURL(file);
         }
 
+        // ---------- 拖拽（基于未旋转坐标系）----------
         function initDrag() {
             let dragging = false, startX, startY, startWmX, startWmY;
             elements.watermarkPreview.addEventListener('mousedown', (e) => {
@@ -333,6 +369,7 @@
             });
         }
 
+        // ---------- 控件绑定（确保数值类型）----------
         function bindControls() {
             elements.opacitySlider.addEventListener('input', () => {
                 watermarkConfig.opacity = parseFloat(elements.opacitySlider.value);
@@ -340,7 +377,7 @@
                 refreshWatermarkPreview();
             });
             elements.sizeSlider.addEventListener('input', () => {
-                watermarkConfig.size = parseInt(elements.sizeSlider.value);
+                watermarkConfig.size = parseInt(elements.sizeSlider.value, 10);
                 elements.sizeValue.textContent = watermarkConfig.size+'px';
                 const half = watermarkConfig.size/2;
                 watermarkConfig.x = Math.max(half, Math.min(previewPageSize.width - half, watermarkConfig.x));
@@ -348,7 +385,7 @@
                 refreshWatermarkPreview();
             });
             elements.rotateSlider.addEventListener('input', () => {
-                watermarkConfig.rotation = parseInt(elements.rotateSlider.value);
+                watermarkConfig.rotation = parseInt(elements.rotateSlider.value, 10);
                 elements.rotateValue.textContent = watermarkConfig.rotation+'°';
                 refreshWatermarkPreview();
             });
@@ -365,7 +402,7 @@
             elements.processBtn.disabled = !(pdfFiles.length > 0 && watermarkImage) || isProcessing;
         }
 
-        // ---------- 核心修复：考虑页面旋转 ----------
+        // ---------- 核心：单个PDF处理（考虑页面旋转）----------
         async function processSinglePdf(file) {
             const pdfBytes = await file.arrayBuffer();
             const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes, { ignoreEncryption: true });
@@ -377,94 +414,84 @@
                 ? await pdfDoc.embedPng(imgBuffer) 
                 : await pdfDoc.embedJpg(imgBuffer);
             
-            // 比例映射 (基于预览页面的视觉尺寸)
+            // 比例映射（基于预览时的未旋转尺寸）
             const centerXRatio = watermarkConfig.x / previewPageSize.width;
             const centerYRatio = watermarkConfig.y / previewPageSize.height;
             const sizeRatio = watermarkConfig.size / previewPageSize.width;
             
-            // 预览CSS顺时针，pdf-lib逆时针，取负值
-            const baseRotation = -watermarkConfig.rotation;
+            // 预览CSS顺时针为正，pdf-lib原生逆时针为正，故取负
+            const pdfRotation = -watermarkConfig.rotation;
+            const rad = pdfRotation * Math.PI / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
             
             for (const page of pages) {
-                // 获取页面原始尺寸 (pt)
+                // 获取页面原始尺寸（未旋转）和旋转角度
                 const { width: rawWidth, height: rawHeight } = page.getSize();
-                // 获取页面旋转角度 (0, 90, 180, 270)
-                const rotation = page.getRotation?.() || 0;
+                const pageRotation = page.getRotation().angle; // 0, 90, 180, 270
                 
-                // 根据旋转计算“视觉”上的宽高 (旋转后的实际显示宽高)
-                let visualWidth = rawWidth;
-                let visualHeight = rawHeight;
-                if (rotation === 90 || rotation === 270) {
-                    visualWidth = rawHeight;
-                    visualHeight = rawWidth;
+                // 根据页面旋转调整水印绘制参数
+                let pageWidth = rawWidth;
+                let pageHeight = rawHeight;
+                let extraRotation = 0;
+                
+                // 当页面有旋转时，交换宽高并增加旋转角度
+                if (pageRotation === 90 || pageRotation === 270) {
+                    pageWidth = rawHeight;
+                    pageHeight = rawWidth;
+                    extraRotation = pageRotation;
                 }
                 
-                // 计算水印在“视觉”页面上的中心坐标 (pt)
-                const centerXInVisual = visualWidth * centerXRatio;
-                const centerYInVisual = visualHeight * (1 - centerYRatio); // Y轴翻转，原点左下
+                // 计算当前页水印中心点 (PT，基于未旋转坐标)
+                const centerXInPt = pageWidth * centerXRatio;
+                const centerYInPt = pageHeight * (1 - centerYRatio);
                 
-                // 水印尺寸 (基于视觉宽度比例)
-                const wmWidthPt = visualWidth * sizeRatio;
+                // 水印尺寸
+                const wmWidthPt = pageWidth * sizeRatio;
                 const wmHeightPt = wmWidthPt * watermarkConfig.ratio;
                 
-                // 旋转角度补偿：预览时的旋转是相对于视觉页面，而pdf-lib的旋转是相对于原始页面。
-                // 若页面有旋转，需要调整水印的旋转角度。
-                const rotationCompensation = rotation; // 逆时针为正
-                const effectiveRotation = baseRotation + rotationCompensation;
-                const rad = effectiveRotation * Math.PI / 180;
-                const cos = Math.cos(rad);
-                const sin = Math.sin(rad);
-                
-                // 将视觉坐标转换为原始页面坐标 (考虑旋转)
-                let finalX, finalY;
                 const halfW = wmWidthPt / 2;
                 const halfH = wmHeightPt / 2;
                 
-                // 先计算视觉坐标系下，旋转后左下角相对于中心的偏移
-                const offsetX_visual = -halfW * cos + halfH * sin;
-                const offsetY_visual = -halfW * sin - halfH * cos;
+                // 旋转偏移
+                const offsetX = -halfW * cos + halfH * sin;
+                const offsetY = -halfW * sin - halfH * cos;
                 
-                // 视觉左下角坐标
-                const leftX_visual = centerXInVisual + offsetX_visual;
-                const bottomY_visual = centerYInVisual + offsetY_visual;
+                let leftX = centerXInPt + offsetX;
+                let bottomY = centerYInPt + offsetY;
                 
-                // 根据旋转将视觉坐标映射回原始页面坐标
-                switch (rotation) {
-                    case 0:
-                        finalX = leftX_visual;
-                        finalY = bottomY_visual;
-                        break;
-                    case 90: // 原始页面顺时针转90°得到视觉，因此逆变换：视觉坐标 (x,y) -> 原始 (y, rawWidth - x)
-                        finalX = bottomY_visual;
-                        finalY = rawWidth - leftX_visual;
-                        break;
-                    case 180:
-                        finalX = rawWidth - leftX_visual;
-                        finalY = rawHeight - bottomY_visual;
-                        break;
-                    case 270:
-                        finalX = rawHeight - bottomY_visual;
-                        finalY = leftX_visual;
-                        break;
-                    default:
-                        finalX = leftX_visual;
-                        finalY = bottomY_visual;
+                // 最终旋转角度 = 用户旋转 + 页面自带旋转补偿
+                const finalRotation = pdfRotation + (pageRotation === 90 ? 90 : pageRotation === 270 ? -90 : pageRotation);
+                
+                // 如果页面旋转了90或270度，需要将坐标映射回原始坐标系
+                if (pageRotation === 90) {
+                    // 原始坐标系：左下角为原点，宽 rawWidth (对应旋转后的高)，高 rawHeight (对应旋转后的宽)
+                    // 我们在 pageWidth x pageHeight 中计算的位置需要转换
+                    const tempX = leftX;
+                    const tempY = bottomY;
+                    leftX = rawWidth - tempY;
+                    bottomY = tempX;
+                } else if (pageRotation === 270) {
+                    const tempX = leftX;
+                    const tempY = bottomY;
+                    leftX = tempY;
+                    bottomY = rawHeight - tempX;
                 }
                 
-                // 绘制时使用的旋转角度是相对于原始页面的有效旋转
                 page.drawImage(watermarkEmbed, {
-                    x: finalX,
-                    y: finalY,
+                    x: leftX,
+                    y: bottomY,
                     width: wmWidthPt,
                     height: wmHeightPt,
                     opacity: watermarkConfig.opacity,
-                    rotate: PDFLib.degrees(effectiveRotation)
+                    rotate: PDFLib.degrees(finalRotation)
                 });
             }
             
             return await pdfDoc.save();
         }
 
+        // ---------- 批量处理 ----------
         async function processAllPdfs() {
             if (isProcessing) return;
             if (!watermarkImage || pdfFiles.length === 0) return;
@@ -514,12 +541,14 @@
             updateProcessButton();
         }
 
+        // ---------- 监听 ----------
         function observeChanges() {
             new ResizeObserver(() => refreshWatermarkPreview()).observe(elements.previewBox);
             elements.pdfPreview.addEventListener('load', () => { if (previewPageSize.width) refreshWatermarkPreview(); });
             elements.watermarkPreview.addEventListener('load', refreshWatermarkPreview);
         }
 
+        // ---------- 启动 ----------
         function init() {
             elements.selectPdfBtn.addEventListener('click', () => elements.pdfFileInput.click());
             elements.pdfFileInput.addEventListener('change', handlePdfSelect);
