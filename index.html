@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PDF批量盖章工具 · 方向校准版</title>
+    <title>PDF批量盖章工具 · 镜像修复版</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <style>
@@ -136,8 +136,9 @@
 
         // 状态
         let pdfFiles = [];
-        let watermarkImage = null;
-        let watermarkDataUrl = null;
+        let watermarkImage = null;          // 用于预览的原始Image对象
+        let watermarkDataUrl = null;        // 标准化后的base64 (已去除EXIF)
+        let originalWatermarkDataUrl = null;// 原始base64，仅用于显示缩略图
         
         let previewPageSize = { width: 0, height: 0 };
         let previewPageSizePt = { width: 0, height: 0 };
@@ -153,12 +154,13 @@
         let isProcessing = false;
         let objectUrls = [];
 
-        // ---------- 工具 ----------
+        // ---------- 工具：清理Blob URL ----------
         function revokeAllUrls() {
             objectUrls.forEach(url => URL.revokeObjectURL(url));
             objectUrls = [];
         }
 
+        // 将 base64 DataURL 转为 ArrayBuffer
         function dataURLToArrayBuffer(dataURL) {
             const base64 = dataURL.split(',')[1];
             const binary = atob(base64);
@@ -166,6 +168,16 @@
             const buffer = new Uint8Array(len);
             for (let i = 0; i < len; i++) buffer[i] = binary.charCodeAt(i);
             return buffer.buffer;
+        }
+
+        // 图片方向标准化：绘制到canvas再导出，消除EXIF干扰，并确保图片方向与预览一致
+        function normalizeImageOrientation(img, callback) {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            callback(canvas.toDataURL('image/png'));
         }
 
         // ---------- 预览刷新 ----------
@@ -190,6 +202,7 @@
             elements.watermarkPreview.style.width = displayW + 'px';
             elements.watermarkPreview.style.height = displayH + 'px';
             elements.watermarkPreview.style.opacity = watermarkConfig.opacity;
+            // CSS顺时针旋转
             elements.watermarkPreview.style.transform = `rotate(${watermarkConfig.rotation}deg)`;
             
             const centerX = watermarkConfig.x * scale + (pdfRect.left - boxRect.left);
@@ -277,24 +290,33 @@
             }
         }
 
-        // ---------- 水印加载 ----------
+        // ---------- 水印加载（含方向标准化） ----------
         function handleWatermarkSelect(e) {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (ev) => {
-                watermarkDataUrl = ev.target.result;
+                originalWatermarkDataUrl = ev.target.result;
                 const img = new Image();
                 img.onload = () => {
-                    watermarkImage = img;
-                    watermarkConfig.ratio = img.height / img.width;
-                    elements.watermarkThumb.src = watermarkDataUrl;
-                    elements.watermarkThumb.style.display = 'block';
-                    elements.watermarkPreview.src = watermarkDataUrl;
-                    if (previewPageSize.width > 0) resetWatermarkToCenter();
-                    updateProcessButton();
+                    // 标准化图片方向，消除EXIF影响
+                    normalizeImageOrientation(img, (normalizedDataUrl) => {
+                        watermarkDataUrl = normalizedDataUrl;
+                        // 重新加载标准化后的图片作为预览源
+                        const normalizedImg = new Image();
+                        normalizedImg.onload = () => {
+                            watermarkImage = normalizedImg;
+                            watermarkConfig.ratio = normalizedImg.height / normalizedImg.width;
+                            elements.watermarkThumb.src = normalizedDataUrl;
+                            elements.watermarkThumb.style.display = 'block';
+                            elements.watermarkPreview.src = normalizedDataUrl;
+                            if (previewPageSize.width > 0) resetWatermarkToCenter();
+                            updateProcessButton();
+                        };
+                        normalizedImg.src = normalizedDataUrl;
+                    });
                 };
-                img.src = watermarkDataUrl;
+                img.src = originalWatermarkDataUrl;
             };
             reader.readAsDataURL(file);
         }
@@ -363,38 +385,36 @@
             elements.processBtn.disabled = !(pdfFiles.length > 0 && watermarkImage) || isProcessing;
         }
 
-        // ---------- 核心：单个PDF处理 (方向已校准) ----------
+        // ---------- 核心：单个PDF处理 (完全匹配预览) ----------
         async function processSinglePdf(file) {
             const pdfBytes = await file.arrayBuffer();
             const pdfDoc = await PDFLib.PDFDocument.load(pdfBytes, { ignoreEncryption: true });
             const pages = pdfDoc.getPages();
             if (pages.length === 0) throw new Error('PDF无页面');
             
-            // 嵌入水印
+            // 嵌入标准化后的水印图片
             const imgBuffer = dataURLToArrayBuffer(watermarkDataUrl);
             const watermarkEmbed = watermarkDataUrl.includes('image/png') 
                 ? await pdfDoc.embedPng(imgBuffer) 
                 : await pdfDoc.embedJpg(imgBuffer);
             
-            // 关键校准：预览使用CSS顺时针旋转为正，pdf-lib逆时针为正，因此取负值保持一致
-            const actualRotation = -watermarkConfig.rotation;
-            const rad = actualRotation * Math.PI / 180;
-            const cos = Math.cos(rad);
-            const sin = Math.sin(rad);
-            
-            // 比例映射（基于预览页面尺寸）
-            const refWidthPt = previewPageSizePt.width;
-            const refHeightPt = previewPageSizePt.height;
+            // 比例映射
             const centerXRatio = watermarkConfig.x / previewPageSize.width;
             const centerYRatio = watermarkConfig.y / previewPageSize.height;
             const sizeRatio = watermarkConfig.size / previewPageSize.width;
             
+            // 关键：预览CSS顺时针旋转θ，pdf-lib原生逆时针，故传入 -θ 实现顺时针旋转
+            const pdfRotation = -watermarkConfig.rotation;
+            const rad = pdfRotation * Math.PI / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            
             for (const page of pages) {
                 const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
                 
-                // 当前页水印中心点 (PT)
+                // 当前页水印中心 (PT)
                 const centerXInPt = pageWidthPt * centerXRatio;
-                const centerYInPt = pageHeightPt * (1 - centerYRatio); // Y翻转
+                const centerYInPt = pageHeightPt * (1 - centerYRatio);
                 
                 // 当前页水印尺寸 (PT)
                 const wmWidthPt = pageWidthPt * sizeRatio;
@@ -403,7 +423,7 @@
                 const halfW = wmWidthPt / 2;
                 const halfH = wmHeightPt / 2;
                 
-                // 计算旋转后的左下角偏移 (使用实际旋转角度)
+                // 计算旋转后左下角偏移量 (使用pdfRotation)
                 const offsetX = -halfW * cos + halfH * sin;
                 const offsetY = -halfW * sin - halfH * cos;
                 
@@ -416,7 +436,7 @@
                     width: wmWidthPt,
                     height: wmHeightPt,
                     opacity: watermarkConfig.opacity,
-                    rotate: PDFLib.degrees(actualRotation)   // 使用校准后的角度
+                    rotate: PDFLib.degrees(pdfRotation)
                 });
             }
             
